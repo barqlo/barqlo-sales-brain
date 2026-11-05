@@ -55,6 +55,12 @@ The repository has **14 exported JSON files**, including two non-current brain s
 5. Read [`docs/live-verification-2026-11-05.md`](docs/live-verification-2026-11-05.md) for evidence and its declared observation window.
 6. Consult [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) for the integration prerequisites and the missing database-schema dependency.
 
+## Database migration history (available with limits)
+
+- [`supabase/migrations/`](supabase/migrations/) contains 18 recorded migrations extracted from the existing Supabase migration-history table on 2026-11-05, and [`supabase/README.md`](supabase/README.md) explains the source and dependencies.
+- The original baseline schema predates these migrations and is **not** in the repository. These incremental scripts **do not demonstrate** a clean-room install, and do **not** by themselves show what code existed at the submission deadline.
+- No tenant row data, customer messages or credential values were exported as part of this migration package.
+
 ## Scope of this document
 
 This document maps **what is in the current repository** to its stated function and independently described historical observations. It does **not** invent a build chronology, assert uninspected 02:00–08:00 executions, claim a clean installation has passed, or change the production workflows. Any later evidence must name its date, workflow version and test scope.

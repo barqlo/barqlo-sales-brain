@@ -165,15 +165,21 @@ credentials are referenced by name only.
 
 ## Reviewer documentation
 
-- [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — n8n imports, credential-reference inventory, database prerequisites, test steps and known limits; **SQL migrations are not included**, so this is not a one-command clean install.
+- [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — n8n imports, credential-reference inventory, database prerequisites, test steps and known limits; **only incremental SQL migrations are included; the original database baseline is not published**, so this is not a one-command clean install.
 - [`HACKATHON_BUILD.md`](HACKATHON_BUILD.md) — source-to-claim mapping, dated evidence, and what cannot be established from a later commit.
 - [`LICENSE`](LICENSE) — MIT license for repository code; commercial reuse is permitted under its terms.
+
+## Supabase SQL migration history
+
+- [`supabase/migrations/`](supabase/migrations/) — **18 authentic historical, incremental SQL migrations** extracted read-only from the live Supabase migration-history table on 2026-11-05. These **are not a complete from-scratch schema**: the earlier BARQLO baseline is missing. See [`supabase/README.md`](supabase/README.md) before attempting any import.
 
 ## Repository structure
 
 ```text
 README.md               This file.
 PRODUCTION_SETUP.md     Production integration steps and documented prerequisites.
+supabase/migrations/     Eighteen recorded incremental SQL migrations (original baseline not included).
+supabase/README.md      Source provenance, limitations and reproducible baseline guidance.
 HACKATHON_BUILD.md      Evidence map and hackathon-build scope.
 LICENSE                 MIT license for the published repository code.
 demo/demo.js            The offline demo of the two-agent core loop.

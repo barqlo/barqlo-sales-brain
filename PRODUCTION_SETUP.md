@@ -1,6 +1,6 @@
 # Barqlo Sales Brain — Production Setup
 
-How to configure the exported n8n workflows on a **compatible database that already has the required schema**. This is an integration/runbook, **not yet a one-command installation**: no SQL migrations or reproducible full-environment deployment are published in this repository.
+How to configure the exported n8n workflows on a **compatible database that already has the required schema**. This is an integration/runbook, **not yet a one-command installation**: the earlier database baseline and a reproducible full-environment deployment are not published in this repository.
 
 The workflow inventory is based on the 2026-11-05 read-only n8n exports in `workflows/`; source filenames and reported SHA-256 fingerprints are in `workflows/MANIFEST.txt`. The exports reference n8n credentials **by name**, not credential values. Some workflow exports also contain webhook paths/URLs and identifiers; these are not secret credentials.
 
@@ -57,7 +57,7 @@ the brain's own SQL) include:
 - **Tenant settings:** `tenant_services`, `tenant_pack_settings`,
   `tenant_custom_instructions`, `tenant_voice_settings`, `dialect_lex`
 
-**SQL migrations are not in this repo.** The database must already have compatible tables, columns, constraints, privileges, and functions. The exported SQL is evidence of the queries used; **it is not a complete database schema** and cannot bootstrap the database by itself. In addition to tables, the workflow SQL references routines such as `public.is_tenant_suspended(...)`, `public.tenant_balance(...)`, and `public.set_instruction_status(...)`; the onboarding flow uses PostgreSQL `crypt(...)` / `gen_salt(...)` functionality, so required extensions and privileges must exist.
+**The 18 recorded historical SQL migrations are now included in [`supabase/migrations/`](supabase/migrations/) (see [`supabase/README.md`](supabase/README.md)). They do not contain the original baseline schema, so this guide is still not a complete clean-room install.** The database must already have compatible tables, columns, constraints, privileges, and functions. The exported SQL is evidence of the queries used; **it is not a complete database schema** and cannot bootstrap the database by itself. In addition to tables, the workflow SQL references routines such as `public.is_tenant_suspended(...)`, `public.tenant_balance(...)`, and `public.set_instruction_status(...)`; the onboarding flow uses PostgreSQL `crypt(...)` / `gen_salt(...)` functionality, so required extensions and privileges must exist.
 
 Set up at least one test tenant, a matching active `channels` row (including the adapter authentication value required by `Identify Tenant by Channel`), and a `tenant_members` row for the test owner. Tenant and role identity come from database rows, not claims in message text. **Do not export the production database or customer records as a substitute for a schema migration.**
 
@@ -145,7 +145,7 @@ file.
 
 ## What is not in this repo
 
-- SQL migrations for the schema in Step 1.
+- The original **baseline** SQL migrations and a verified, complete schema-only bootstrap; the 18 historical incremental migrations are available under [`supabase/migrations/`](supabase/migrations/) but cannot reconstruct the whole schema on their own.
 - The live database or any of its data.
 - Any credential value, bot token or API key.
 - A fully automated, independently verified clean-install test.
