@@ -1,0 +1,158 @@
+{
+  "name": "follow-up",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "55554ec5-799f-46f0-935a-ee2662f19e1e",
+      "name": "Schedule Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        96,
+        -48
+      ],
+      "notes": "DRAFT. ONCE daily at 09:00 Africa/Cairo — TBD-F1: Mahmoud to confirm the hour. NEVER every 5 minutes (that alone would burn 288 executions/day of the 1000 trial budget). One execution serves ALL tenants."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT tenant_id, COUNT(*) AS open_conversations, MAX(last_message_at) AS last_activity FROM conversations WHERE status = 'open' AND (last_message_at IS NULL OR last_message_at < now() - interval '24 hours') GROUP BY tenant_id ORDER BY tenant_id;",
+        "options": {}
+      },
+      "id": "f8925c3d-7846-45a6-ab13-2d154d5989cb",
+      "name": "Grouped Follow-up Query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -48
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. ONE grouped query for all tenants — never one query per tenant, never one execution per tenant. The 24-hour threshold is a DRAFT rule (TBD-F2); the business rule for 'due' follow-ups is not yet decided — do not present this threshold as approved policy."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic only: no model call, no cost, no invented text.\n// Output is a per-tenant summary list. The actual SEND step (channel + template +\n// owner approval) is TBD-F3 — this draft writes the summary to audit only and\n// never sends a message by itself, so a draft bug cannot spam owners/customers.\nconst rows = $input.all().map(i => i.json);\nconst reminders = rows.map(r => ({ tenant_id: r.tenant_id, open_conversations: Number(r.open_conversations), last_activity: r.last_activity, reminder: 'follow_up_due' }));\nreturn [{ json: { tenants_due: reminders.length, reminders, generated_at: new Date().toISOString() } }];"
+      },
+      "id": "681e56fc-89e8-4533-96c5-ac42e721c851",
+      "name": "Compose Reminders (No AI)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -48
+      ],
+      "notes": "DRAFT. No AI, no send. A follow-up that sends without an approved template/channel is out of scope for this draft."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO admin_audit (tenant_id, action, target, details) VALUES (NULL, 'follow_up_run', 'all_tenants', '{\"tenants_due\": {{ $('Compose Reminders (No AI)').first().json.tenants_due }}}'::jsonb);",
+        "options": {}
+      },
+      "id": "b36f4a73-f82f-424c-9ce4-80d094178191",
+      "name": "Write Summary Audit",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -48
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. One platform summary row per daily run (tenant_id NULL = platform-wide action, per schema). Per-tenant detail lives in the execution output, not in a fake message row."
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Compose Reminders (No AI)').first().json;\nreturn [{ json: { run: 'follow_up_daily', tenants_due: c.tenants_due, sent: false, send_step: 'TBD-F3: channel + template not yet decided — nothing was sent by this draft' } }];"
+      },
+      "id": "94e3fe55-e1d3-42a6-bcf8-489b42448512",
+      "name": "Build Follow-up Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        -48
+      ],
+      "notes": "DRAFT. sent=false is honest: this draft summarizes only."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Daily": {
+      "main": [
+        [
+          {
+            "node": "Grouped Follow-up Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grouped Follow-up Query": {
+      "main": [
+        [
+          {
+            "node": "Compose Reminders (No AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Reminders (No AI)": {
+      "main": [
+        [
+          {
+            "node": "Write Summary Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Summary Audit": {
+      "main": [
+        [
+          {
+            "node": "Build Follow-up Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "27cfc051-bd3c-4483-a3ba-d9fca1e5de0a",
+  "meta": {
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "x4zA09Szy7PdJ1Cd",
+  "tags": []
+}

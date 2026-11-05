@@ -1,0 +1,432 @@
+{
+  "name": "instruction-validator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "validator-2b80365ba6fff38aefeb",
+        "authentication": "headerAuth",
+        "options": {
+          "responseData": "{\"ok\": true}"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "be87b1e0-cc81-4da3-a6f3-720d9d33fa79",
+      "name": "Webhook Trigger",
+      "webhookId": "190f19ec-5db8-433a-8349-67a616071038",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "IjxF1hkZqBhanaXc",
+          "name": "validator_webhook_secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, tenant_id, instruction_text, bound_key, bound_value, status, updated_at FROM public.tenant_custom_instructions WHERE id = $1 AND status = 'pending'",
+        "options": {
+          "queryReplacement": "={{ $('Webhook Trigger').first().json.body.instruction_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        672,
+        0
+      ],
+      "id": "154e9ba6-ceed-47ff-bb53-8d64bdd81433",
+      "name": "Read Row",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sector_code FROM public.tenants WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $('Read Row').first().json.tenant_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1344,
+        -96
+      ],
+      "id": "eb6d685e-a3df-43fc-aa5c-676cbde888bc",
+      "name": "Read Tenant Sector",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT policy_key, policy_value FROM public.policies WHERE tenant_id = $1 AND is_active",
+        "options": {
+          "queryReplacement": "={{ $('Read Row').first().json.tenant_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1568,
+        -96
+      ],
+      "id": "fd01b201-ecbb-4e8d-9460-0f4b808e18a9",
+      "name": "Read Policies",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT dialect, concept, term, term_value FROM public.dialect_lexicon WHERE is_active",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1696,
+        -96
+      ],
+      "id": "c493d17b-1ebc-43cf-8ecc-fb7dc7e920e4",
+      "name": "Read Lexicon",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sector_code, display_name, style_opening, style_close, style_highlight, selling_steps, item_fields, forbidden_actions, escalation_triggers, memory_keys, terminology, version FROM public.sector_packs WHERE sector_code = $1",
+        "options": {
+          "queryReplacement": "={{ $('Read Tenant Sector').first().json.sector_code }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1920,
+        -96
+      ],
+      "id": "004b3d5b-331f-4652-800f-198343f0352f",
+      "name": "Read Pack",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// step4_validate_instruction.js — SHARED instruction validator (step 4, written clean).\n// Purpose: decide whether an owner custom instruction may activate, by checking it\n// against tenant policies and the dialect_lexicon table. NOTHING here is hardcoded\n// from one dialect: every danger word, negation marker, percent phrase, and number\n// word comes from lexicon rows (all dialects present, active rows only).\n//\n// INPUT (single object):\n//   { instruction_text, bound_key, bound_value, policies, lexicon }\n//   - bound_key: one of max_discount_pct | max_installments | min_down_payment_pct\n//     | booking_fee | cash_discount_pct, or null.\n//   - bound_value: numeric, or null (bound_key + bound_value are all-or-nothing).\n//   - policies: [{ key, value }] where value is a number OR {\"value\": number}.\n//   - lexicon: [{ dialect, concept, term, term_value, is_active }] (DB rows).\n// OUTPUT: { verdict: 'pass' } OR { verdict: 'reject', code, field, detail }.\n//   Codes:\n//     bound_exceeded         structured bound number violates its policy.\n//     malformed_policy       the policy being checked has a non-numeric value\n//                            (distinguished from a violating instruction).\n//     use_structured_field   danger concept WITH a bound_key, written in free text\n//                            (the number/policy detail rides in `detail`).\n//     forbidden_action       danger concept WITHOUT a bound_key, written as an\n//                            order (negotiation, diagnosis). No structured field\n//                            exists for these, so \"use structured field\" would lie.\n//     unknown_number_word    a percent marker with no resolvable number bound.\n//     exception_requires_review  an exception marker (إلا/باستثناء/ماعدا) after the\n//                            verb: exception beats negation, human must review.\n//     invalid_bound          the instruction's own bound_value is not numeric\n//                            (distinct from a malformed POLICY value).\n//   SPEC-TENSION RESOLUTION (recorded, not hidden): the two-type model lists\n//   negotiation among \"dangerous, only via structured field\", but no bound_key\n//   exists for negotiation — so a negotiation order cannot be fixed by any\n//   structured field. It is rejected as forbidden_action (the bot never negotiates\n//   price itself), with that fact stated in `detail`.\n//\n// TEXT PIPELINE (in order, per spec):\n//   1. custNorm: letter folding (أإآ→ا، ة→ه، ى→ي) + strip tatweel/diacritics in\n//      [U+0640, U+064B–U+065F, U+0670]. The range EXCLUDES Eastern digits\n//      (U+0660–U+0669) and ٪ (U+066A) — digits are folded, never deleted.\n//   2. custLat: fold Eastern (U+0660–U+0669) and Persian (U+06F0–U+06F9) digits\n//      to Latin digits.\n//   3. Comma strip: /(\\d)[,\\u066c](?=\\d{3})/g → '$1' (thousands separators only).\n//   Terms from the lexicon are normalized by the SAME pipeline before matching.\n//   (Consequence: MSA 'في المئة' normalizes to 'في الميه'; EGY 'في المية' stays.\n//   Both match their own dialect's text, because both sides are normalized.)\n//\n// SENTENCES: split on . ؟ ! newline AND ؛ . Binding is sentence-local ONLY.\n// DISTANCES are sentence-relative token offsets (i − sentence start), never a\n// ±40-character window.\n//\n// NUMBER BINDING (spec wording, implemented literally): for each NUMBER in a\n// sentence, its keyword is the nearest danger keyword BEFORE it, else the nearest\n// danger keyword AFTER it. A danger keyword \"owns\" the numbers assigned to it.\n// NUMBER-WORD CONVERSION: longest-match-first over lexicon number_word terms.\n// Compounds (unit + و + tens, e.g. 'واحد وعشرين') resolve by longest match on the\n// tens part plus the unit part; 'في المية' / percent phrases count as % markers.\n// UNKNOWN-NUMBER-WORD RULE (defined here, before step 5): in a danger sentence,\n// if a percent marker (٪ or any percent_phrase term) is present but NO number\n// (digit, or lexicon number-word) can be bound to the danger keyword, the verdict\n// is unknown_number_word. The detail names the token immediately before the\n// percent marker when it is not a digit (e.g. 'زعبلوط' in 'خصم زعبلوط في المية'),\n// else the sentence. This is fail-closed: an unresolvable number never passes.\n// NEGATION (generalized to ANY forbidden word): a negation marker (lexicon\n// concept=negation, all dialects) counts when EITHER (a) it is a standalone token\n// within 2 words BEFORE the forbidden word in the same sentence, OR (b) it is\n// ATTACHED: the token starts with a negation marker AND the remainder contains\n// the forbidden term ('ماتتفاوضش' = ما + تتفاوض + ش; 'متتفاوضش' = م + تتفاوض + ش).\n// Rule (b) requires the remainder to contain the term, so 'سلام' (contains 'لا'\n// mid-word, not as a prefix) and 'مشغول'/'مشكلة' (remainder has no forbidden\n// term) are NOT negation. A bare 'لا'/'ما' token with no forbidden word nearby\n// changes nothing — negation only modifies a danger verdict, it never rejects\n// or passes on its own.\n// EXCEPTION BEATS NEGATION: إلا / باستثناء / ماعدا AFTER the verb in the same\n// sentence → reject for review, even if a negation precedes the verb.\n// FORBIDDEN-PHRASE MATCHING (validator side only): one-way containment — the\n// text contains the phrase. Guard reply-phrase matching is a SEPARATE step-7\n// decision and is NOT done here.\n// 'مقدم' GUARD (documented trade-off): after normalization, 'مقدمة' becomes\n// 'مقدمه'. A normalized 'مقدم' hit that forms exactly 'مقدمه' is treated as\n// introduction and skipped. Cost: the possessive 'his down payment' reading of\n// 'مقدمه' is missed; that phrasing is rare, 'المقدم' (with ال) still fires, and\n// the structured bound_key path still covers real down-payment instructions.\n// PRECEDENCE inside one free-text danger sentence: unknown_number_word first,\n// then the danger rule (use_structured_field / forbidden_action). The structured\n// bound path is checked before free text. First rejection wins.\n// EMPTY instruction_text: vacuous pass (nothing dangerous in it).\n// A malformed policy blocks ONLY when it is the policy being checked (same key);\n// unrelated malformed policies do not block the verdict.\n\nfunction normalizeArabic(s) {\n  return String(s)\n    .replace(/[أإآ]/g, 'ا')\n    .replace(/ة/g, 'ه')\n    .replace(/ى/g, 'ي')\n    .replace(/[ـً-ٰٟ]/g, '');\n}\n\nfunction foldDigits(s) {\n  return String(s).replace(/[٠-٩]/g, function (d) { return String(d.charCodeAt(0) - 0x660); })\n    .replace(/[۰-۹]/g, function (d) { return String(d.charCodeAt(0) - 0x6f0); });\n}\n\nfunction stripThousands(s) {\n  return String(s).replace(/(\\d)[,٬](?=\\d{3})/g, '$1');\n}\n\nfunction cleanText(s) {\n  return stripThousands(foldDigits(normalizeArabic(s)));\n}\n\nfunction splitSentences(text) {\n  return cleanText(text).split(/[.\\؟!\\n؛]+/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nfunction tokenize(sentence) {\n  return sentence.split(/[\\s،,؛:()«»\"']+/).filter(Boolean);\n}\n\nfunction buildLexicon(rows) {\n  var byConcept = {};\n  (rows || []).filter(function (r) { return r && r.is_active !== false && r.term; }).forEach(function (r) {\n    var term = cleanText(r.term);\n    if (!term) return;\n    byConcept[r.concept] = byConcept[r.concept] || [];\n    byConcept[r.concept].push({ dialect: r.dialect, term: term, term_value: r.term_value });\n  });\n  Object.keys(byConcept).forEach(function (c) {\n    byConcept[c].sort(function (a, b) { return b.term.length - a.term.length; });\n  });\n  return byConcept;\n}\n\nfunction unwrapPolicyValue(v) {\n  if (v !== null && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'value')) return v.value;\n  return v;\n}\n\nfunction policyNumber(policies, key) {\n  var row = (policies || []).filter(function (p) { return p && p.key === key; })[0];\n  if (!row) return { found: false };\n  var v = unwrapPolicyValue(row.value);\n  if (typeof v !== 'number' || isNaN(v)) return { found: true, malformed: true, raw: row.value };\n  return { found: true, value: v };\n}\n\n// Concept → bound key (null = no structured field exists for this concept).\nfunction conceptBoundKey(concept) {\n  if (concept === 'discount') return 'max_discount_pct';\n  if (concept === 'installment') return 'max_installments';\n  if (concept === 'down_payment') return 'min_down_payment_pct';\n  if (concept === 'fee') return 'booking_fee';\n  return null;\n}\n\nfunction boundFails(key, instructionNumber, policyNumberValue) {\n  if (key === 'max_discount_pct' || key === 'max_installments' || key === 'cash_discount_pct') {\n    return instructionNumber > policyNumberValue;\n  }\n  if (key === 'min_down_payment_pct') return instructionNumber < policyNumberValue;\n  if (key === 'booking_fee') return instructionNumber !== policyNumberValue;\n  return false;\n}\n\nvar DANGER_CONCEPTS = ['negotiate', 'discount', 'installment', 'down_payment', 'fee', 'diagnosis'];\nvar EXCEPTION_MARKERS = ['إلا', 'باستثناء', 'ماعدا'];\n\n// Find danger-term hits in a sentence: [{ concept, term, tokenIdx, charIdx }].\n// Substring containment per spec, with the مقدمه guard (see header).\nfunction findDangerHits(sentence, lexicon) {\n  var tokens = tokenize(sentence);\n  var hits = [];\n  var offset = 0;\n  tokens.forEach(function (tok, ti) {\n    var charIdx = sentence.indexOf(tok, offset);\n    offset = charIdx + tok.length;\n    DANGER_CONCEPTS.forEach(function (concept) {\n      (lexicon[concept] || []).forEach(function (entry) {\n        var t = entry.term;\n        var pos = tok.indexOf(t);\n        if (pos === -1) return;\n        if (t === 'مقدم' && tok === 'مقدمه') return; // introduction, not down payment\n        hits.push({ concept: concept, term: t, tokenIdx: ti, charIdx: charIdx + pos });\n      });\n    });\n  });\n  // One hit per (concept, token): keep the longest term per concept per token.\n  var seen = {};\n  return hits.filter(function (h) {\n    var k = h.concept + '@' + h.tokenIdx;\n    if (seen[k]) return false;\n    seen[k] = true;\n    return true;\n  });\n}\n\n// Tokens covered by a percent phrase must NOT count as numbers: 'في المية'\n// contains the number-word 'مية' (100). Without masking, 'خصم زعبلوط في المية'\n// would bind 100 and never reach unknown_number_word. Returns a Set of token\n// indices covered by any percent_phrase term (longest terms first).\nfunction percentCoveredTokens(sentence, lexicon) {\n  var tokens = tokenize(sentence);\n  var covered = {};\n  (lexicon['percent_phrase'] || []).forEach(function (e) {\n    var words = e.term.split(/\\s+/);\n    if (words.length === 1) {\n      tokens.forEach(function (t, ti) {\n        // A token carrying BOTH a digit and the percent sign ('10٪') must NOT\n        // be masked: the digit is a real number. Mask only digit-free tokens\n        // (a standalone '٪' marker carries no number anyway).\n        if (t.indexOf(words[0]) !== -1 && !/\\d/.test(t)) covered[ti] = true;\n      });\n      return;\n    }\n    for (var i = 0; i + words.length <= tokens.length; i++) {\n      var match = true;\n      for (var j = 0; j < words.length; j++) {\n        if (tokens[i + j] !== words[j]) { match = false; break; }\n      }\n      if (match) for (var k = 0; k < words.length; k++) covered[i + k] = true;\n    }\n  });\n  return covered;\n}\n\n// Numbers in a sentence: digits (after cleaning) and lexicon number-words.\n// Returns [{ value, tokenIdx, text, isWord }], longest-match-first for words.\n// COMPOUNDS: unit + و + tens merge into one number ('واحد وعشرين' → 21,\n// 'واحد و عشرين' → 21). Thousand/hundred compounds are NOT covered (spec).\n// skipIdx: token indices to ignore (percent-phrase coverage, see above).\nfunction findNumbers(sentence, lexicon, skipIdx) {\n  var tokens = tokenize(sentence);\n  var words = lexicon['number_word'] || [];\n  function wordAt(tok) {\n    var m = tok.match(/^\\d+(\\.\\d+)?/);\n    if (m) return { value: parseFloat(m[0]), text: m[0], isWord: false };\n    for (var i = 0; i < words.length; i++) {\n      if (tok === words[i].term || tok.indexOf(words[i].term) !== -1) {\n        return { value: words[i].term_value, text: words[i].term, isWord: true };\n      }\n    }\n    return null;\n  }\n  function isTens(v) { return v && v.isWord && [20, 30, 40, 50, 60, 70, 80, 90].indexOf(v.value) !== -1; }\n  var out = [];\n  for (var ti = 0; ti < tokens.length; ti++) {\n    if (skipIdx && skipIdx[ti]) continue;\n    var w = wordAt(tokens[ti]);\n    if (!w) continue;\n    if (w.isWord && w.value >= 1 && w.value <= 10) {\n      // Try compound: next token 'و'+tens, or standalone 'و' + tens.\n      var nx = tokens[ti + 1];\n      var tens = null;\n      if (nx && nx.charAt(0) === 'و') {\n        var rest = nx.slice(1);\n        var rw = wordAt(rest);\n        if (isTens(rw)) tens = rw;\n      }\n      if (!tens && nx === 'و') {\n        var rw2 = wordAt(tokens[ti + 2] || '');\n        if (isTens(rw2)) tens = rw2;\n      }\n      if (tens) {\n        out.push({ value: w.value + tens.value, tokenIdx: ti, text: w.text + '+' + tens.text, isWord: true });\n        ti += (nx === 'و' ? 2 : 1);\n        continue;\n      }\n    }\n    out.push({ value: w.value, tokenIdx: ti, text: w.text, isWord: w.isWord });\n  }\n  return out;\n}\n\nfunction hasPercentMarker(sentence, lexicon) {\n  if (sentence.indexOf('٪') !== -1 || sentence.indexOf('%') !== -1) return true;\n  return (lexicon['percent_phrase'] || []).some(function (e) { return sentence.indexOf(e.term) !== -1; });\n}\n\n// Negation check for a danger hit at tokenIdx in this sentence's tokens.\n// Returns 'negated' | 'exception' | null.\nfunction negationStatus(tokens, tokenIdx, hitTerm, lexicon) {\n  var markers = (lexicon['negation'] || []).map(function (e) { return e.term; });\n  var excTerms = EXCEPTION_MARKERS.map(cleanText);\n  // Exception AFTER the verb beats negation: check first.\n  for (var j = tokenIdx + 1; j < tokens.length; j++) {\n    if (excTerms.some(function (e) { return tokens[j].indexOf(e) !== -1; })) return 'exception';\n  }\n  // (a) Standalone marker within 2 words before.\n  for (var k = Math.max(0, tokenIdx - 2); k < tokenIdx; k++) {\n    if (markers.indexOf(tokens[k]) !== -1) return 'negated';\n  }\n  // (b) Attached: the hit token itself starts with a marker AND the remainder\n  // contains the forbidden term.\n  var tok = tokens[tokenIdx];\n  for (var m = 0; m < markers.length; m++) {\n    var mk = markers[m];\n    if (tok.indexOf(mk) === 0 && tok.length > mk.length) {\n      var rest = tok.slice(mk.length);\n      if (rest.indexOf(hitTerm) !== -1) return 'negated';\n    }\n  }\n  // Also: the hit token may carry an attached single-letter م prefix forming a\n  // NEGATED verb ('متتفاوضش' = م + تتفاوض + ش). Require the trailing ش, so a\n  // plain participle ('متفاوض' = one who negotiates, an order to negotiate)\n  // is NOT mistaken for negation.\n  if (tok.charAt(0) === 'م' && tok.charAt(tok.length - 1) === 'ش' && tok.indexOf(hitTerm) !== -1 && tok !== hitTerm) {\n    return 'negated';\n  }\n  return null;\n}\n\nfunction validateInstruction(input) {\n  var text = input.instruction_text || '';\n  var policies = input.policies || [];\n  var lexicon = buildLexicon(input.lexicon || []);\n  if (!cleanText(text).trim()) return { verdict: 'pass' };\n\n  // --- Structured bound path (bound_key + bound_value, all-or-nothing) ---\n  if (input.bound_key && input.bound_value !== null && input.bound_value !== undefined) {\n    var bv = input.bound_value;\n    if (typeof bv === 'string' && bv.trim() !== '' && !isNaN(Number(bv))) bv = Number(bv);\n    if (typeof bv !== 'number' || isNaN(bv)) {\n      return { verdict: 'reject', code: 'invalid_bound', field: input.bound_key, detail: 'instruction bound_value is not numeric: ' + JSON.stringify(input.bound_value) };\n    }\n    var pol = policyNumber(policies, input.bound_key);\n    if (pol.found && pol.malformed) {\n      return { verdict: 'reject', code: 'malformed_policy', field: input.bound_key, detail: 'policy ' + input.bound_key + ' has a non-numeric value, cannot be checked' };\n    }\n    if (pol.found && boundFails(input.bound_key, bv, pol.value)) {\n      return { verdict: 'reject', code: 'bound_exceeded', field: input.bound_key, detail: 'bound ' + bv + ' violates policy ' + input.bound_key + ' = ' + pol.value };\n    }\n  }\n\n  // --- Free-text path, sentence by sentence ---\n  var sentences = splitSentences(text);\n  for (var si = 0; si < sentences.length; si++) {\n    var sentence = sentences[si];\n    var tokens = tokenize(sentence);\n    var hits = findDangerHits(sentence, lexicon);\n    if (!hits.length) continue;\n    var covered = percentCoveredTokens(sentence, lexicon);\n    var numbers = findNumbers(sentence, lexicon, covered);\n    var percent = hasPercentMarker(sentence, lexicon);\n\n    // Assign each number to its keyword: nearest danger keyword BEFORE it,\n    // else nearest danger keyword AFTER it (spec wording, literal).\n    var assigned = {}; // hit index -> [numbers]\n    numbers.forEach(function (num) {\n      var before = null, after = null;\n      hits.forEach(function (h, hi) {\n        if (h.tokenIdx <= num.tokenIdx && (before === null || h.tokenIdx > hits[before].tokenIdx)) before = hi;\n        if (h.tokenIdx >= num.tokenIdx && (after === null || h.tokenIdx < hits[after].tokenIdx)) after = hi;\n      });\n      var owner = before !== null ? before : after;\n      if (owner !== null) {\n        assigned[owner] = assigned[owner] || [];\n        assigned[owner].push(num);\n      }\n    });\n\n    for (var hi = 0; hi < hits.length; hi++) {\n      var hit = hits[hi];\n      var ns = negationStatus(tokens, hit.tokenIdx, hit.term, lexicon);\n      if (ns === 'exception') {\n        return { verdict: 'reject', code: 'exception_requires_review', field: hit.concept, detail: 'exception marker after the verb in: ' + sentence };\n      }\n      if (ns === 'negated') continue; // tightening: this hit passes\n      var owned = assigned[hi] || [];\n      var key = conceptBoundKey(hit.concept);\n      // Cash discount: a discount hit with a cash marker in the sentence maps\n      // to cash_discount_pct instead of max_discount_pct.\n      if (hit.concept === 'discount' && (sentence.indexOf('كاش') !== -1 || sentence.indexOf('نقدي') !== -1)) {\n        key = 'cash_discount_pct';\n      }\n      if (percent && !owned.length) {\n        // Slot token = the token immediately before the percent marker (if it\n        // is not a digit). E.g. 'زعبلوط' in 'خصم زعبلوط في المية'.\n        var coveredIdx = Object.keys(covered).map(Number).sort(function (a, b) { return a - b; });\n        var slotTok = null;\n        var markerIdx = coveredIdx.length ? coveredIdx[0] : -1;\n        if (markerIdx === -1) {\n          tokens.forEach(function (t, ti) {\n            if (t.indexOf('٪') !== -1 || t.indexOf('%') !== -1) markerIdx = ti;\n          });\n        }\n        if (markerIdx > 0 && !/^\\d/.test(tokens[markerIdx - 1])) slotTok = tokens[markerIdx - 1];\n        return { verdict: 'reject', code: 'unknown_number_word', field: hit.concept, detail: 'percent marker with no resolvable number' + (slotTok ? ' (slot token: ' + slotTok + ')' : '') + ' in: ' + sentence };\n      }\n      if (key) {\n        var p2 = policyNumber(policies, key);\n        if (p2.found && p2.malformed) {\n          return { verdict: 'reject', code: 'malformed_policy', field: key, detail: 'policy ' + key + ' has a non-numeric value, cannot be checked' };\n        }\n        var detail = 'danger concept ' + hit.concept + ' in free text; use the structured field ' + key;\n        if (owned.length && p2.found) {\n          detail += ' (bound number ' + owned[0].value + ' vs policy ' + key + ' = ' + p2.value + ')';\n        } else if (owned.length) {\n          detail += ' (bound number ' + owned[0].value + ', no policy row for ' + key + ')';\n        }\n        return { verdict: 'reject', code: 'use_structured_field', field: key, detail: detail };\n      }\n      return { verdict: 'reject', code: 'forbidden_action', field: hit.concept, detail: 'forbidden action in free text: ' + hit.term + ' in: ' + sentence };\n    }\n  }\n  return { verdict: 'pass' };\n}\n\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = { validateInstruction: validateInstruction, cleanText: cleanText, buildLexicon: buildLexicon };\n}\n\n// ---- n8n wrapper below (not part of the tested file) ----\nconst row = $('Read Row').first().json;\nconst policiesRows = $('Read Policies').all().map((i) => i.json);\nconst lexiconRows = $('Read Lexicon').all().map((i) => i.json);\nconst result = validateInstruction({\n  instruction_text: row.instruction_text,\n  bound_key: row.bound_key,\n  bound_value: row.bound_value,\n  policies: policiesRows.map((p) => ({ key: p.policy_key, value: p.policy_value })),\n  lexicon: lexiconRows.map((l) => ({ dialect: l.dialect, concept: l.concept, term: l.term, term_value: l.term_value, is_active: true }))\n});\nreturn [{ json: { instruction_id: row.id, tenant_id: row.tenant_id, instruction_updated_at: row.updated_at, verdict: result.verdict, code: result.code || null, field: result.field || null, detail: result.detail || null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2048,
+        -96
+      ],
+      "id": "eb84abdf-1efa-474c-83e1-cb083dcc4e03",
+      "name": "Validate"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT set_instruction_status($1, 'rejected', $2, $3, $4, $5)",
+        "options": {
+          "queryReplacement": "{{ $('Read Row').first().json.id }}, {{ $('Read Row').first().json.updated_at }}, {{ $('Validate').first().json.code }}, {{ $('Validate').first().json.field }}, {{ $('Validate').first().json.detail }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2496,
+        0
+      ],
+      "id": "9bbe6450-cb51-490e-9117-c2e636af0a61",
+      "name": "Reject Instruction",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status, updated_at FROM public.tenant_custom_instructions WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $('Read Row').first().json.id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2688,
+        -144
+      ],
+      "id": "56f9cfad-c2e7-4141-a6f9-a2d4656b1d72",
+      "name": "Re-read Row",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT set_instruction_status($1, 'active', $2, NULL, NULL, NULL)",
+        "options": {
+          "queryReplacement": "{{ $('Read Row').first().json.id }}, {{ $('Read Row').first().json.updated_at }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2400,
+        -192
+      ],
+      "id": "76e810e7-d00f-4f13-b3c1-1d1893414dbf",
+      "name": "Activate Instruction",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{ json: { ...item, route: item.verdict } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        -96
+      ],
+      "id": "07bb506c-1809-4f46-bf5e-a3857ac185eb",
+      "name": "Route Flag"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "pass",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "38a0bc20-5d6b-4d37-aa64-abb9061ec7cb"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        2640,
+        48
+      ],
+      "id": "c871044a-a3a0-4e94-9550-b19eff3ee166",
+      "name": "Switch On Verdict"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Row": {
+      "main": [
+        [
+          {
+            "node": "Read Tenant Sector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Tenant Sector": {
+      "main": [
+        [
+          {
+            "node": "Read Policies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Policies": {
+      "main": [
+        [
+          {
+            "node": "Read Lexicon",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Lexicon": {
+      "main": [
+        [
+          {
+            "node": "Read Pack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pack": {
+      "main": [
+        [
+          {
+            "node": "Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate": {
+      "main": [
+        [
+          {
+            "node": "Route Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject Instruction": {
+      "main": [
+        [
+          {
+            "node": "Re-read Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-read Row": {
+      "main": [
+        []
+      ]
+    },
+    "Activate Instruction": {
+      "main": [
+        [
+          {
+            "node": "Re-read Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Flag": {
+      "main": [
+        [
+          {
+            "node": "Switch On Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch On Verdict": {
+      "main": [
+        [
+          {
+            "node": "Activate Instruction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Instruction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "8ioQVVDjqVhFAlYp",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "0f9f6432-4cc3-4a5f-88ae-5b9bf4d451b8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "iwC5jQi98R6Xa5sw",
+  "tags": []
+}

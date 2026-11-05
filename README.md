@@ -132,6 +132,31 @@ published himself at 00:35 EET. The full record, execution by execution, is in
 The inspection used test identities, not real customers, and covers only the
 window stated in the verification record.
 
+## Production workflows
+
+`workflows/` holds the n8n workflow definitions exported read-only from
+n8n Cloud on 2026-11-05 (17:00–17:07 EET) — the exact files verified that
+day, with SHA-256 fingerprints in `workflows/MANIFEST.txt`:
+
+- `barqlo-brain-guard-v1-CANDIDATE.json` — the live brain (24 nodes),
+  serving the `barqlo-brain-v5` webhook path.
+- `barqlo-brain-main-v2-CANDIDATE14.json` — the previous brain version
+  (24 nodes), the one the demo video and the live-verification record
+  document.
+- `telegram-adapter-sharq.json`, `telegram-adapter-saqr.json`,
+  `telegram-adapter-hazaa.json` — one lightweight adapter per Telegram
+  channel, each calling the brain's webhook.
+- `instruction-validator.json`, `instruction-validator-errors.json`,
+  `stale-alert.json` — the validation and monitoring workflows.
+- `tenant-activation.json`, `owner-data-intake.json`,
+  `barqlo-request-status-notify.json`, `follow-up.json`, `admin-ops.json` —
+  supporting operations workflows.
+- `barqlo-brain-main-v2-DRAFT.json` — a draft copy of the brain
+  (22 nodes), kept for reference.
+
+No credentials appear in these files: database, Telegram and header-auth
+credentials are referenced by name only.
+
 ## Repository structure
 
 ```text
@@ -145,6 +170,11 @@ docs/live-verification-2026-11-05.md
                         Execution-by-execution record of the 2026-11-05 live
                         inspection: what was observed, and what was not
                         claimed.
+workflows/              The production n8n workflows, exported 2026-11-05
+                        (read-only export, nothing changed): the live brain,
+                        the previous brain version, the three Telegram
+                        adapters, and the supporting workflows. See
+                        workflows/MANIFEST.txt for IDs and fingerprints.
 .gitignore              Keeps secrets and local artifacts out of the repo.
 ```
 
@@ -153,7 +183,9 @@ docs/live-verification-2026-11-05.md
 - All sample data in this repo is fabricated. No real customer names, phone
   numbers, prices or conversations appear anywhere here.
 - Nothing in this repo calls a live system, and it contains no credentials,
-  tokens, keys or webhook URLs.
+  tokens or keys — credentials are referenced by name only. The workflow
+  files do contain the production webhook URL and the Meta Model API
+  endpoint, both already stated in this README.
 - Production runs as a single n8n workflow backed by PostgreSQL, with one
   lightweight adapter per channel. The workflow's node count, endpoint, model
   and timeout stated in `docs/architecture.md` were read from a live export.

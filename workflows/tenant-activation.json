@@ -1,0 +1,435 @@
+{
+  "name": "tenant-activation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tenant-activation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0c09ca96-44d7-45ad-a45c-dd3670efa2f6",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -80
+      ],
+      "webhookId": "db593f76-eed1-4ac0-8d96-706b1639706d",
+      "notes": "DRAFT. Entry only. Never trust tenant_id / role from the request body alone; every downstream step re-verifies from the database."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input contract: { business_name, whatsapp, sector_code, market_code? }\n// The sector must exist in the active catalog and have a pack before tenant creation.\nconst b = ($json.body ?? $json) || {};\nconst business_name = String(b.business_name ?? '').trim();\nconst whatsapp = String(b.whatsapp ?? '').trim();\nconst sector_code = String(b.sector_code ?? '').trim();\nconst market_code = String(b.market_code ?? 'EG').trim().toUpperCase();\nif (!business_name) throw new Error('activation_rejected: business_name is empty');\nif (!whatsapp || whatsapp.replace(/[^0-9+]/g, '').length < 9) throw new Error('activation_rejected: whatsapp is invalid');\nif (!/^[a-z][a-z0-9_]*$/.test(sector_code)) throw new Error('activation_rejected: sector_code format is invalid');\nif (!['EG', 'SA'].includes(market_code)) throw new Error('activation_rejected: market_code must be EG or SA');\nreturn [{ json: { business_name, whatsapp, sector_code, market_code } }];"
+      },
+      "id": "415eb92d-230a-4626-a687-76b34bc8dc98",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -80
+      ],
+      "notes": "DRAFT. Validation only. Throws loudly on bad input; no tenant is created and no fake success is returned."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Slug: generated from the BUSINESS NAME, never from the sector name.\n// TBD-A2 (do not guess): Arabic-to-Latin transliteration table for Arabic business names.\n// Draft rule: keep Latin letters/digits/hyphens only; if nothing remains, fall back to a\n// timestamp suffix. Uniqueness is resolved by the next two nodes.\nconst d = $json;\nlet slug_candidate = d.business_name.toLowerCase().trim().replace(/\\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');\nif (!slug_candidate) slug_candidate = 'tenant-' + Date.now().toString(36);\nreturn [{ json: { business_name: d.business_name, whatsapp: d.whatsapp, sector_code: d.sector_code, market_code: d.market_code, slug_candidate } }];"
+      },
+      "id": "a8e7e15b-b158-49fd-9b54-e8268f676159",
+      "name": "Compute Slug Candidate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        -80
+      ],
+      "notes": "DRAFT. Slug candidate from business name only. The final slug is decided after the uniqueness check."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug = '{{ $json.slug_candidate }}') AS slug_exists;",
+        "options": {}
+      },
+      "id": "ce5fb654-5ddc-4ca6-90f1-1b02372fed2a",
+      "name": "Check Slug Exists",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Always returns exactly one row (true/false), so the chain never stalls on a miss."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Slug-only: merges the candidate (from 'Compute Slug Candidate') with the check result ($json).\n// If the candidate exists, append '-2' (single retry; repeated collisions are TBD-A1).\n// Note: the temp password now comes from Postgres (gen_random_uuid) in the next node; its delivery channel is TBD.\nconst cand = $('Compute Slug Candidate').first().json;\nconst slug = $json.slug_exists ? cand.slug_candidate + '-2' : cand.slug_candidate;\nreturn [{ json: { business_name: cand.business_name, whatsapp: cand.whatsapp, sector_code: cand.sector_code, market_code: cand.market_code, slug } }];"
+      },
+      "id": "0774b1b8-71da-4f07-82e4-960e86523c10",
+      "name": "Finalize Slug and Temp Password",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        -80
+      ],
+      "notes": "DRAFT. Temp password exists only in execution data for hashing; output never contains it."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.tenants (slug, business_name, sector_code, market_code, currency_code, status, data_mode)\nSELECT $1, $2, s.code, $4::text, CASE $4::text WHEN 'SA' THEN 'SAR' ELSE 'EGP' END, 'trial', 'real'\nFROM public.sectors AS s\nJOIN public.sector_packs AS p ON p.sector_code = s.code AND p.is_active = true\nWHERE s.code = $3 AND s.is_active = true\nRETURNING id, slug, sector_code, market_code, currency_code, status;",
+        "options": {
+          "queryReplacement": "={{ [ $('Finalize Slug and Temp Password').first().json.slug, $('Finalize Slug and Temp Password').first().json.business_name, $('Finalize Slug and Temp Password').first().json.sector_code, $('Finalize Slug and Temp Password').first().json.market_code ] }}"
+        }
+      },
+      "id": "6e72e6f1-2092-4da0-9e2c-d4d7c8143a6d",
+      "name": "Insert Tenant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Status is always 'trial' here. Admin approval is ONLY for going live with a real channel (admin-ops approve_live), never for trial. data_mode='real' and NO sample/demo rows are copied for a real owner — the tenant starts empty."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO owners (tenant_id, username, password_hash, display_name, phone, role, is_active) VALUES ('{{ $('Insert Tenant').first().json.id }}', 'owner', crypt('{{ $('Generate Temp Password').first().json.temp_password }}', gen_salt('bf')), '{{ $('Finalize Slug and Temp Password').first().json.business_name }}', '{{ $('Finalize Slug and Temp Password').first().json.whatsapp }}', 'owner', true) RETURNING id, tenant_id;",
+        "options": {}
+      },
+      "id": "8efbb1e1-c860-41cb-b5cf-65ecd5791a45",
+      "name": "Insert Owner",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Password hashed in Postgres with pgcrypto crypt()/gen_salt('bf'); plaintext is never stored. VERIFY at setup that pgcrypto is enabled in the new Supabase project (TBD-A4). Username 'owner' is unique per tenant (UNIQUE tenant_id+username)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO services (code, name_ar, name_en) VALUES ('lead_capture', 'التقاط عملاء', 'Lead Capture'), ('booking', 'حجوزات', 'Booking'), ('orders', 'طلبات', 'Orders'), ('follow_up', 'متابعة', 'Follow-up'), ('digest', 'ملخص', 'Digest') ON CONFLICT (code) DO NOTHING;",
+        "options": {}
+      },
+      "id": "f755ed28-2fb5-4c26-88de-bf89a3687d3e",
+      "name": "Ensure Services Catalog",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Services catalog rows are NOT seeded by 001_init.sql, so activation ensures them (idempotent) before toggling them. Adding a service later = one INSERT row here, never a new workflow."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tenant_services (tenant_id, service_code, is_active, activated_at) SELECT '{{ $('Insert Tenant').first().json.id }}', code, true, now() FROM services WHERE code IN ('lead_capture', 'booking', 'orders', 'follow_up', 'digest') ON CONFLICT (tenant_id, service_code) DO UPDATE SET is_active = true, activated_at = now();",
+        "options": {}
+      },
+      "id": "6e474fb7-e881-4311-bdd8-1a02edfd00e1",
+      "name": "Activate Tenant Services",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. All 5 core services ON at once for a new trial owner; the owner turns one off later with a single toggle (admin-ops toggle_service)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT 1 WHERE FALSE; -- Financial policies are configured per tenant after onboarding.",
+        "options": {}
+      },
+      "id": "d8ab00b0-bcfc-4c99-93a8-5a5e9f497ad6",
+      "name": "Insert Default Policies",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Approved starting defaults from UNIFIED_PLAN §1 (25% / 24 / 5% / 5000 / 3%). These are STARTING defaults for a NEW owner only — they never overwrite a real owner's existing per-project policies. Currency of booking_fee is TBD (plan says SAR; real-estate demo data used EGP) — see PLACEHOLDERS.md TBD-A5."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO admin_audit (tenant_id, action, target, details) VALUES ('{{ $('Insert Tenant').first().json.id }}', 'tenant_activated', 'tenant', '{\"status\": \"trial\", \"sector_code\": \"{{ $('Finalize Slug and Temp Password').first().json.sector_code }}\", \"services\": 5}'::jsonb);",
+        "options": {}
+      },
+      "id": "90b15e8b-e6d2-4b04-b7fa-20f03be656d7",
+      "name": "Audit Activation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      },
+      "notes": "DRAFT. Audit row contains no password, no token, and no phone number."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final output contract — exactly these fields, nothing more.\n// owner_login_url uses the staging portal base placeholder; set it at deploy time\n// to the real staging portal URL. The temporary password is DELIBERATELY absent.\nconst t = $('Insert Tenant').first().json;\nreturn [{ json: {\n  tenant_id: t.id,\n  owner_login_url: 'PUT_OWNER_PORTAL_BASE' + '/owner.html?tenant=' + t.id,\n  status: 'trial'\n} }];"
+      },
+      "id": "b1bbaf4d-5e22-424a-b3b0-f8b6754b93aa",
+      "name": "Build Activation Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        -80
+      ],
+      "notes": "DRAFT. Output contract: { tenant_id, owner_login_url, status:'trial' }. No password, no token, no phone in the output."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "c0356610-b426-482d-a726-517d8b45d290",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3072,
+        -80
+      ],
+      "notes": "DRAFT. Returns the workflow output object only. Never returns a password, token, or API key."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT gen_random_uuid()::text AS temp_password;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1504,
+        -80
+      ],
+      "id": "09a3fabf-e0c6-4766-bfa5-66160b8f4c47",
+      "name": "Generate Temp Password",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Compute Slug Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Slug Candidate": {
+      "main": [
+        [
+          {
+            "node": "Check Slug Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slug Exists": {
+      "main": [
+        [
+          {
+            "node": "Finalize Slug and Temp Password",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Slug and Temp Password": {
+      "main": [
+        [
+          {
+            "node": "Insert Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Tenant": {
+      "main": [
+        [
+          {
+            "node": "Generate Temp Password",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Owner": {
+      "main": [
+        [
+          {
+            "node": "Ensure Services Catalog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ensure Services Catalog": {
+      "main": [
+        [
+          {
+            "node": "Activate Tenant Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Tenant Services": {
+      "main": [
+        [
+          {
+            "node": "Insert Default Policies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Default Policies": {
+      "main": [
+        [
+          {
+            "node": "Audit Activation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Activation": {
+      "main": [
+        [
+          {
+            "node": "Build Activation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Activation Output": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Temp Password": {
+      "main": [
+        [
+          {
+            "node": "Insert Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "468a32b4-f395-4cbd-b541-23b195d1ebb6",
+  "meta": {
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "ZTxh7LoxRWBC1Yge",
+  "tags": []
+}

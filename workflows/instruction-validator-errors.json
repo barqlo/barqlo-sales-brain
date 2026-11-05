@@ -1,0 +1,65 @@
+{
+  "name": "instruction-validator-errors",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dcccd998-f170-4cac-bed7-0259675993f3",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "809355960",
+        "text": "={{ $json.execution.id}} validator_error",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "f1881435-c0ae-473d-b4ef-1dab977a4c25",
+      "name": "Send Error Alert",
+      "webhookId": "0f27e0ba-4e1e-4a36-809d-644223fa7a17",
+      "credentials": {
+        "telegramApi": {
+          "id": "sn5IGhFh6cRqntRV",
+          "name": "n8n:telegram_alerts"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f45013de-d6e3-41c8-b095-a43687e758a2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "8ioQVVDjqVhFAlYp",
+  "tags": []
+}

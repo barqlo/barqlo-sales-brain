@@ -1,0 +1,219 @@
+{
+  "name": "stale-alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stale-alert-7f3a9c2e1b8d4f6a9e0c",
+        "authentication": "headerAuth",
+        "options": {
+          "responseData": "{\"ok\": true}"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "536bc7a3-cb6d-40b8-8c8c-44edaff62c1c",
+      "name": "Webhook Trigger",
+      "webhookId": "cec454dc-8c76-4491-8c96-249b32a42f6d",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "62RAQitd7zNvXcVB",
+          "name": "stale_alert_secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, tenant_id, status, updated_at, (now() - updated_at > interval '5 minutes') AS is_stale FROM public.tenant_custom_instructions WHERE id = $1 AND status = 'pending'",
+        "options": {
+          "queryReplacement": "={{ $('Webhook Trigger').first().json.body.instruction_id}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        224,
+        0
+      ],
+      "id": "a0e3e4d8-a139-4006-ab35-860640b05fa0",
+      "name": "Read Row",
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nlet stale;\nif (item.is_stale === true) stale = 'stale';\nelse if (item.is_stale === false) stale = 'fresh';\nelse stale = 'unknown';\nconst alert_code = stale === 'stale' ? 'stale_pending' : stale === 'unknown' ? 'stale_state_unknown' : '';\nreturn [{ json: { ...item, stale, alert_code } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        0
+      ],
+      "id": "38285564-7bee-4dc4-bcda-c232e8109504",
+      "name": "Stale Flag"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.stale }}",
+                    "rightValue": "stale",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "617a77a5-d94d-428d-8a8e-f7d6181b1085"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "9a06f8ca-0a26-4209-95a4-624407ee19a0",
+                    "leftValue": "={{ $json.stale }}",
+                    "rightValue": "unknown",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        576,
+        0
+      ],
+      "id": "683ce711-0a12-4f75-bc50-412e04f711cc",
+      "name": "Switch On Stale"
+    },
+    {
+      "parameters": {
+        "chatId": "809355960",
+        "text": "={{ $json.id }} {{ $json.alert_code }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        -96
+      ],
+      "id": "d3c7d1f2-fd2a-404b-a72a-5b1617d8ad90",
+      "name": "Send Stale Alert",
+      "webhookId": "d8517717-3738-4e61-b684-49aa83c488b5",
+      "credentials": {
+        "telegramApi": {
+          "id": "sn5IGhFh6cRqntRV",
+          "name": "n8n:telegram_alerts"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Row": {
+      "main": [
+        [
+          {
+            "node": "Stale Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stale Flag": {
+      "main": [
+        [
+          {
+            "node": "Switch On Stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch On Stale": {
+      "main": [
+        [
+          {
+            "node": "Send Stale Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Stale Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "e5508120-601e-4bba-978a-4fe9b1e5d2b3",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "iVmT6kSPdPmsPwXQ",
+  "tags": []
+}

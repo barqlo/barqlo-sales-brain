@@ -1,0 +1,343 @@
+{
+  "name": "barqlo-request-status-notify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "barqlo-request-status-v1-8c7de7fd",
+        "options": {}
+      },
+      "id": "ede62c28-fdc7-4dea-9b04-af6013c29e91",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        208
+      ],
+      "webhookId": "8c7de7fd-462a-4c13-a0db-68eea643fc31"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH claimed AS (\n UPDATE public.request_notifications rn\n SET delivery_status='sending', attempts=attempts+1, lease_until=now()+interval '2 minutes', last_error=null\n FROM public.customer_requests cr, public.customer_identities ci, public.channels ch\n WHERE rn.id=$1::uuid AND rn.tenant_id=$2::uuid AND rn.request_id=cr.id\n AND cr.tenant_id=rn.tenant_id AND cr.status=rn.event_status\n AND ci.tenant_id=rn.tenant_id AND ci.customer_id=cr.customer_id AND ci.provider='telegram'\n AND ch.tenant_id=rn.tenant_id AND ch.provider='telegram' AND ch.active=true AND ch.adapter_secret=$3::text\n AND rn.delivery_status='pending'\n RETURNING rn.id AS notification_id, rn.tenant_id, rn.event_status, cr.request_kind, cr.payload, cr.subtotal, cr.currency, ci.channel_user_id, ch.external_id\n)\nSELECT * FROM claimed;",
+        "options": {
+          "queryReplacement": "={{ $json.body.notification_id }},{{ $json.body.tenant_id }},{{ $json.body.secret }}"
+        }
+      },
+      "id": "6478ca21-2782-4806-b266-14168534f3f3",
+      "name": "Claim Notification",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        224,
+        208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$input.first().json;\nif (!r || !r.notification_id || !r.channel_user_id) return [];\nconst cart=Array.isArray(r.payload?.cart)?r.payload.cart:[];\nconst lines=cart.slice(0,20).map(x=>'• '+String(x.name||'الصنف')+' × '+Number(x.quantity||1)).join('\\n');\nconst kind=r.request_kind==='order'?'طلبك':r.request_kind==='booking'?'طلب الحجز':r.request_kind==='viewing'?'طلب المعاينة':'طلبك';\nconst status=r.event_status==='confirmed'?'اتأكد من الفريق ✅':r.event_status==='completed'?'اكتمل ✅':'اتلغى بعد مراجعة الفريق.';\nlet body=kind+' '+status+'\\nرقم المتابعة: '+String(r.notification_id).slice(0,8);\nif (lines) body+='\\n'+lines;\nif (r.request_kind==='order' && r.subtotal!=null) body+='\\nإجمالي الأصناف: '+Number(r.subtotal)+(r.currency==='EGP'?' جنيه':' '+String(r.currency||''));\nif (r.event_status==='confirmed') body+='\\nلو محتاج تفاصيل الموعد أو الاستلام، فريق النشاط هيكمل معاك.';\nreturn [{json:{notification_id:r.notification_id,tenant_id:r.tenant_id,external_id:r.external_id,chat_id:r.channel_user_id,text:body}}];"
+      },
+      "id": "c57d0186-0fc5-452d-bb12-fe1b73ac9f11",
+      "name": "Build Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.external_id }}",
+                    "rightValue": "elsharq_bot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ab6d0692-7509-4130-9a32-75252f941849"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.external_id }}",
+                    "rightValue": "hazaa_clinc_bot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d253c52d-f933-41d7-b301-6d69819f734d"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.external_id }}",
+                    "rightValue": "sakr_eg_bot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "de8974f7-f2a5-479c-87e4-13444bdc3701"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": 0
+        }
+      },
+      "id": "8ab49e8f-2b12-41c8-a703-8a356a5458f6",
+      "name": "Route Tenant Bot",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e115b7a1-bd1a-4d2b-8222-8c2c7f678a54",
+      "name": "Send Sharq Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        0
+      ],
+      "webhookId": "c2ec1d39-b440-462d-8539-a8a4c78855f6",
+      "credentials": {
+        "telegramApi": {
+          "id": "JQCczPDKiqZVYohD",
+          "name": "n8n:telegram_sharq"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "900fbeae-05c7-4163-a830-6a4df772682c",
+      "name": "Send Hazaa Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        208
+      ],
+      "webhookId": "1b0cd01f-397b-482e-a748-5296114e4593",
+      "credentials": {
+        "telegramApi": {
+          "id": "3dbpYCn6ZluO1SCn",
+          "name": "n8n:telegram_mskn"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a2fd5a78-fb09-4824-9db7-29242c8cb05b",
+      "name": "Send Saqr Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        912,
+        400
+      ],
+      "webhookId": "b4c6abe6-4e29-41c9-8bbb-d4bb6fc3bbb3",
+      "credentials": {
+        "telegramApi": {
+          "id": "VfovQpyZ3wgjhnFE",
+          "name": "n8n:telegram_saqr"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.request_notifications SET delivery_status='sent',sent_at=now(),lease_until=NULL WHERE id=$1::uuid AND delivery_status='sending' RETURNING id,delivery_status;",
+        "options": {
+          "queryReplacement": "={{ $('Build Notification').first().json.notification_id }}"
+        }
+      },
+      "id": "3a53aa4f-14e6-428e-a381-4216f6809367",
+      "name": "Mark Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "0CqCbfkwMjL11jKY",
+          "name": "BarqBrainv1 Postgres"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Claim Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Notification": {
+      "main": [
+        [
+          {
+            "node": "Build Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Notification": {
+      "main": [
+        [
+          {
+            "node": "Route Tenant Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Tenant Bot": {
+      "main": [
+        [
+          {
+            "node": "Send Sharq Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Hazaa Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Saqr Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Sharq Telegram": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Hazaa Telegram": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Saqr Telegram": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "8585e79d-9b31-4236-bfce-919b0f6367c6",
+  "meta": {
+    "instanceId": "d3744835bf0993187a583905b6033040c6d7c732e017faeb3007aeaf8a444d26"
+  },
+  "nodeGroups": [],
+  "id": "3zjpFvBkiRPe7bpQ",
+  "tags": []
+}
