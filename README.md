@@ -49,8 +49,9 @@ load their knowledge into the same brain.
 
 ## Meta AI usage
 
-The brain's core is rebuilt on Meta's Muse Spark models through the Meta Model
-API. In production, one HTTP node calls:
+The brain uses Meta's Muse Spark through the Meta Model API. The
+production export has a draft HTTP node and an optional correction HTTP node
+that call:
 
 - Endpoint: `https://api.meta.ai/v1/chat/completions`
 - Model: `muse-spark-1.3` (temperature 0.3)
@@ -124,10 +125,15 @@ published himself at 00:35 EET. The full record, execution by execution, is in
   own row (price AND unit must match the attached row) and judges every
   money number by its role. Live behavior matches: a draft with wrong
   prices was blocked twice and never sent.
-- **Separation — PROVEN.** The gate reads the role from the database row
-  only — no keywords, no message text — before any drafting. The same
-  digest sentence returned an operational summary to the owner and a
-  generic fallback to the customer, with zero owner data sent.
+- **Separation — historically observed, with a version distinction.**
+  The owner/customer role comes only from a database membership row, never
+  from what the sender types. The current `barqlo-brain-guard-v1-CANDIDATE`
+  also checks some Arabic customer requests for administrative subjects
+  before drafting; request-text checks can **deny** privileged content but
+  cannot **grant** an owner role. The older, keyword-free role-gate finding
+  in the dated verification record applies to the older version inspected
+  there. That historical test returned an owner digest to an owner and
+  withheld owner data from a customer.
 
 The inspection used test identities, not real customers, and covers only the
 window stated in the verification record.
@@ -157,10 +163,19 @@ day, with SHA-256 fingerprints in `workflows/MANIFEST.txt`:
 No credentials appear in these files: database, Telegram and header-auth
 credentials are referenced by name only.
 
+## Reviewer documentation
+
+- [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — n8n imports, credential-reference inventory, database prerequisites, test steps and known limits; **SQL migrations are not included**, so this is not a one-command clean install.
+- [`HACKATHON_BUILD.md`](HACKATHON_BUILD.md) — source-to-claim mapping, dated evidence, and what cannot be established from a later commit.
+- [`LICENSE`](LICENSE) — MIT license for repository code; commercial reuse is permitted under its terms.
+
 ## Repository structure
 
 ```text
 README.md               This file.
+PRODUCTION_SETUP.md     Production integration steps and documented prerequisites.
+HACKATHON_BUILD.md      Evidence map and hackathon-build scope.
+LICENSE                 MIT license for the published repository code.
 demo/demo.js            The offline demo of the two-agent core loop.
 demo/sample-data.json   Fabricated tenant data (invented restaurant, prices,
                         policies). Nothing real.
@@ -190,4 +205,6 @@ workflows/              The production n8n workflows, exported 2026-11-05
   lightweight adapter per channel. The workflow's node count, endpoint, model
   and timeout stated in `docs/architecture.md` were read from a live export.
 - The live-verification record states its inspection window and its limits.
-  Anything not observed there is not claimed in this repo.
+  Do not treat later exports or post-deadline documentation commits as proof
+  that they were part of the original submitted snapshot. The present guard
+  may have different customer request-blocking logic from the earlier one.
