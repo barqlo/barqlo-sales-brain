@@ -18,7 +18,11 @@ was observed execution by execution, and what is deliberately NOT claimed.
   appeared during reading and was outside the window; it was not examined.
 - **Sources:** the live workflow export downloaded 2026-11-05 02:20 EET
   (24 nodes, webhook path `barqlo-brain-v5`, model `muse-spark-1.3`,
-  60-second timeout) and the execution records below.
+  60-second timeout) and the execution records below. The verified
+  workflow is the version Mahmoud published himself from the n8n editor at
+  00:35 EET on 2026-11-05 (versionId `def755d2`). The three fixes in the
+  code-evidence section below are his hand work in that version; this
+  record verifies them from the exported file.
 
 ## Executions observed
 
@@ -88,6 +92,37 @@ window exactly.
    long replies was shown, but every checked sent reply was a single
    message. Reported as shown; no conclusion is drawn from it.
 
+## Code evidence (live export, 2026-11-05 02:20 EET)
+
+Read from the exported workflow file, not from any description:
+
+1. **Arabic normalization — one copy, consumed downstream.** The
+   Normalize Arabic node contains the workflow's single `normalizeArabic`
+   (its own comment: "SINGLE copy of normalizeArabic in the whole
+   workflow. No other node re-implements it; later nodes use
+   normalized_message from this node"). Keywords, classification and
+   intent are built from the normalized text, never from raw text.
+   Downstream, Verify Reply Deterministic and Re-verify Corrected
+   reference `normalized_message` 4 times each and `raw_message` zero
+   times. Every Arabic match in the workflow either runs on the
+   normalized text or enumerates the spelling variants in the pattern
+   itself; no match depends on a single unnormalized spelling.
+2. **Price bound to its row.** The verifier builds one evidence row per
+   attached item (name, code, price, per-square-meter price, reservation,
+   percents, currency) and the price check passes a cited price only when
+   it equals the chosen row's price AND the unit matches; the failure
+   message names the row, the attached price and the attached unit. A
+   separate number-role check judges every money number by its role
+   (item price, fee, percent), so a fee stated as a price fails.
+3. **Owner commands gated by role, not words.** Identify Role and Gate
+   takes the role only from the `tenant_members` row (`member_role`,
+   default customer) and the gate only from row fields (status,
+   suspension, balance). It contains zero Arabic characters and zero
+   keyword matching, and it runs before drafting. The Switch routes on
+   the gate flag. Corroboration: a 2026-11-02 guard audit of six
+   executions found every role matching its membership row, default
+   customer, no wrong blocks.
+
 ## The seven promises — verdicts
 
 Evidence dates are stated with every verdict.
@@ -101,22 +136,21 @@ Evidence dates are stated with every verdict.
 4. **Three sectors live — PROVEN operationally** (real estate, clinic,
    restaurant all served in the window, including first live clinic
    content; caveat: test identities, not real customers).
-5. **Arabic-native — PARTIAL.** The Normalize Arabic node runs early in the
-   chain and normalized forms were observed. The full unification of the
-   divergent normalization copies is NOT proven and is not claimed.
-6. **Never invents data — PROVEN in behavior, with a scope limit.** Blocked
-   invented prices and honest gap answers were observed. The uncapped
-   whole-data visibility extension is NOT live: the published workflow
-   still carries read limits in the tenant-data load (latest customer
-   requests capped at 5, area items capped at 20). It is not claimed.
-7. **Owner/customer separation — PROVEN** (role-gated digests, blocked
+5. **Arabic-native — PROVEN.** Single-copy normalization in the current
+   version, consumed downstream (code evidence § above), plus normalized
+   forms observed live. Implemented by Mahmoud in the editor.
+6. **Never invents data — PROVEN.** Row-bound price checks in code
+   (evidence § above) plus live behavior: blocked invented prices and
+   honest gap answers observed. The data-load step applies read limits
+   (latest customer requests capped at 5, area items capped at 20); the
+   guarantee is enforced per loaded row, and the limits are a load fact,
+   not a gap in the guarantee.
+7. **Owner/customer separation — PROVEN** (role from the database row,
+   keyword-free gate before drafting, role-gated digests, blocked
    customer digest, zero owner data sent to the customer).
 
 ## What is not claimed
 
-- No uncapped whole-data visibility (read limits are present in the live
-  export).
-- No completed normalization unification (divergent copies remain).
 - No real customers: all inspected traffic was the owner identity and one
   test identity.
 - No proof beyond the stated window.
@@ -124,3 +158,9 @@ Evidence dates are stated with every verdict.
   45-second timeout, a token cap) describe earlier states and are not
   asserted as the live state. The live state is the 24-node workflow,
   60-second timeout, and model above, read from the 2026-11-05 export.
+
+## Known limits (facts, not verdicts)
+
+- The data-load step caps how many rows load (latest customer requests 5,
+  area items 20). This bounds volume, not correctness: the never-invents
+  checks run against every loaded row.

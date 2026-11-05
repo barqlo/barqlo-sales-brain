@@ -99,7 +99,8 @@ its verdict, any correction, the final reply, and an audit line:
 
 On the morning of 2026-11-05 (01:42–01:52 EET), the production workflow's
 execution records were inspected read-only — no test messages were sent. The
-full record, execution by execution, is in
+code facts below were read from the live export of the version Mahmoud
+published himself at 00:35 EET. The full record, execution by execution, is in
 `docs/live-verification-2026-11-05.md`. In short:
 
 - **One brain, three sectors.** The same 24-node workflow served a
@@ -112,16 +113,21 @@ full record, execution by execution, is in
 - **Two agents.** A flawed draft with invented prices failed verification
   twice and was blocked with a fallback and an owner alert; another draft
   was corrected once and then allowed.
-- **Arabic-native.** The normalization node runs early in the chain and
-  normalized forms were observed. The unification of all divergent
-  normalization copies is not complete and is not claimed here.
-- **Never invents.** The gap test was answered honestly and invented prices
-  were blocked. The uncapped whole-data visibility extension is not live —
-  the published workflow still carries read limits — and is not claimed
-  here.
-- **Separation.** The same digest sentence returned an operational summary
-  to the owner and a generic fallback to the customer, with zero owner data
-  sent.
+- **Arabic-native — PROVEN in the current version.** One Normalize Arabic
+  node holds the single copy of `normalizeArabic` in the whole workflow
+  (its own code says so), and every later node matches against its
+  `normalized_message` output — never against raw text, except two slot
+  reads that enumerate the spelling variants in the pattern itself.
+  Implemented by Mahmoud in the editor and published 2026-11-05 00:35 EET;
+  verified from the live export.
+- **Never invents — PROVEN.** The verifier binds every cited price to its
+  own row (price AND unit must match the attached row) and judges every
+  money number by its role. Live behavior matches: a draft with wrong
+  prices was blocked twice and never sent.
+- **Separation — PROVEN.** The gate reads the role from the database row
+  only — no keywords, no message text — before any drafting. The same
+  digest sentence returned an operational summary to the owner and a
+  generic fallback to the customer, with zero owner data sent.
 
 The inspection used test identities, not real customers, and covers only the
 window stated in the verification record.

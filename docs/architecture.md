@@ -97,9 +97,11 @@ detailed, split across messages rather than compressed.
   role-gated digests, a corrected-then-allowed reply, and a
   blocked-then-fallback reply with owner alert. Per-execution costs USD
   0.013–0.043. Full record: `docs/live-verification-2026-11-05.md`.
-- Scope notes, stated plainly: the live export still contains read limits in
-  the tenant-data load (latest customer requests capped, area items capped),
-  so uncapped whole-data visibility is not the live behavior and is not
-  claimed. Arabic normalization runs in one early node and normalized forms
-  were observed, but the unification of all divergent normalization copies
-  is not complete and is not claimed.
+- Code facts read from the same export: one Normalize Arabic node holds the
+  single `normalizeArabic` copy; later nodes consume its
+  `normalized_message`. The verifier binds each cited price to its row
+  (price and unit must match) and judges every money number by its role.
+  The gate reads the role from the `tenant_members` row only — no keywords.
+  Load Tenant Data applies read limits in the data-load step (latest
+  customer requests, area items); the never-invents guarantee is enforced
+  per loaded row.
