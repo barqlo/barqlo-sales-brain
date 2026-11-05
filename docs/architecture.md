@@ -85,12 +85,21 @@ detailed, split across messages rather than compressed.
 | Channels | One fake channel row | Telegram/WhatsApp/Instagram/Messenger/web adapters |
 | Secrets | None exist | n8n credentials, never in code |
 
-## Verified production facts (live export, 2026-11-05)
+## Verified production facts (live export + inspection, 2026-11-05)
 
-- Single workflow, 24 nodes; production webhook path `barqlo-brain-v5`.
+- Single workflow, 24 nodes; production webhook path `barqlo-brain-v5`
+  (export downloaded 2026-11-05 02:20 EET, 261,326 bytes, workflow id
+  `lz76eFOdmCaEMygs`).
 - Draft call: `POST api.meta.ai/v1/chat/completions`, `muse-spark-1.3`,
   temperature 0.3, Header Auth, 60-second timeout.
-- The same workflow served all three live demo tenants (real estate, clinic,
-  restaurant) with role-gated digests, a corrected-then-allowed reply, and a
-  blocked-then-fallback reply with owner alert — all observed in execution
-  records on 2026-11-05.
+- Execution records inspected read-only 01:42–01:52 EET on 2026-11-05 (no
+  messages sent): the same workflow served all three live demo tenants with
+  role-gated digests, a corrected-then-allowed reply, and a
+  blocked-then-fallback reply with owner alert. Per-execution costs USD
+  0.013–0.043. Full record: `docs/live-verification-2026-11-05.md`.
+- Scope notes, stated plainly: the live export still contains read limits in
+  the tenant-data load (latest customer requests capped, area items capped),
+  so uncapped whole-data visibility is not the live behavior and is not
+  claimed. Arabic normalization runs in one early node and normalized forms
+  were observed, but the unification of all divergent normalization copies
+  is not complete and is not claimed.

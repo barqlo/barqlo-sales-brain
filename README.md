@@ -60,6 +60,19 @@ API. In production, one HTTP node calls:
 The model drafts replies only. Every draft passes the deterministic verifier
 before anything is sent. No reply is ever generated from the model alone.
 
+## Demo video
+
+[Watch the demo (2:23, English)](https://drive.google.com/file/d/1YpCzRH_6SrUh_qvQFc8GrTQOuQCvqNk1/view?usp=drivesdk)
+
+Recorded 2026-11-05 from the live system. It walks the seven promises one by
+one, each with its evidence: the audit rows showing model `muse-spark-1.3`,
+the two-agent guard drawn from the production workflow's real node names, the
+three live sector digests, the gap test (a question about an item that does
+not exist, answered without inventing a price), the blocked invented-price
+audit row, the owner/customer separation, and the owner workspace with staff
+accounts. An Arabic-narrated version (2:33) shows the same evidence. No real
+customer data and no credentials appear in the video.
+
 ## The demo in this repo
 
 `demo/` runs the core loop offline with no keys, no network and no dependencies
@@ -71,15 +84,47 @@ production's shape.
 node demo/demo.js
 ```
 
-It runs four scenarios against fabricated sample data and prints each draft,
+It runs five scenarios against fabricated sample data and prints each draft,
 its verdict, any correction, the final reply, and an audit line:
 
 1. A customer asks the price of an item that exists — real price, allowed.
 2. A customer asks about an item that does not exist — honest gap, allowed.
 3. A flawed draft invents a price — the verifier rejects it, one correction
    strips the invented price and adds an honesty note, re-verification allows it.
-4. The same digest sentence from a customer and from the owner — the customer
-   gets a generic fallback with zero owner data; the owner gets the digest.
+4. The same digest sentence from a customer — the role gate blocks owner
+   content, a generic fallback is sent, zero owner data.
+5. The same digest sentence from the owner — the digest is allowed.
+
+## Live verification — 2026-11-05
+
+On the morning of 2026-11-05 (01:42–01:52 EET), the production workflow's
+execution records were inspected read-only — no test messages were sent. The
+full record, execution by execution, is in
+`docs/live-verification-2026-11-05.md`. In short:
+
+- **One brain, three sectors.** The same 24-node workflow served a
+  real-estate tenant, a clinic tenant and a restaurant tenant, with
+  role-gated digests for the owner and blocked owner content for the
+  customer.
+- **Muse Spark.** Every inspected brain execution ran `muse-spark-1.3`
+  through the Meta Model API, with per-execution costs of USD 0.013–0.043
+  recorded in audit rows.
+- **Two agents.** A flawed draft with invented prices failed verification
+  twice and was blocked with a fallback and an owner alert; another draft
+  was corrected once and then allowed.
+- **Arabic-native.** The normalization node runs early in the chain and
+  normalized forms were observed. The unification of all divergent
+  normalization copies is not complete and is not claimed here.
+- **Never invents.** The gap test was answered honestly and invented prices
+  were blocked. The uncapped whole-data visibility extension is not live —
+  the published workflow still carries read limits — and is not claimed
+  here.
+- **Separation.** The same digest sentence returned an operational summary
+  to the owner and a generic fallback to the customer, with zero owner data
+  sent.
+
+The inspection used test identities, not real customers, and covers only the
+window stated in the verification record.
 
 ## Repository structure
 
@@ -90,6 +135,10 @@ demo/sample-data.json   Fabricated tenant data (invented restaurant, prices,
                         policies). Nothing real.
 docs/architecture.md    Pipeline, identity rules, verification rules, and how
                         the demo maps to the production system.
+docs/live-verification-2026-11-05.md
+                        Execution-by-execution record of the 2026-11-05 live
+                        inspection: what was observed, and what was not
+                        claimed.
 .gitignore              Keeps secrets and local artifacts out of the repo.
 ```
 
@@ -102,3 +151,5 @@ docs/architecture.md    Pipeline, identity rules, verification rules, and how
 - Production runs as a single n8n workflow backed by PostgreSQL, with one
   lightweight adapter per channel. The workflow's node count, endpoint, model
   and timeout stated in `docs/architecture.md` were read from a live export.
+- The live-verification record states its inspection window and its limits.
+  Anything not observed there is not claimed in this repo.
