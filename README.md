@@ -138,79 +138,24 @@ published himself at 00:35 EET. The full record, execution by execution, is in
 The inspection used test identities, not real customers, and covers only the
 window stated in the verification record.
 
-## Production workflows
+## Public demo and private production implementation
 
-`workflows/` holds the n8n workflow definitions exported read-only from
-n8n Cloud on 2026-11-05 (17:00–17:07 EET) — the exact files verified that
-day, with SHA-256 fingerprints in `workflows/MANIFEST.txt`:
+BARQLO is an Arabic-first multi-tenant AI business platform. The public repository documents the architecture, a demo video, and an **offline demonstration with fabricated data**. The demo can be run with `node demo/demo.js` (Node.js 18+); it does not use live credentials, tenant data, or live model calls.
 
-- `barqlo-brain-guard-v1-CANDIDATE.json` — the live brain (24 nodes),
-  serving the `barqlo-brain-v5` webhook path.
-- `barqlo-brain-main-v2-CANDIDATE14.json` — the previous brain version
-  (24 nodes), the one the demo video and the live-verification record
-  document.
-- `telegram-adapter-sharq.json`, `telegram-adapter-saqr.json`,
-  `telegram-adapter-hazaa.json` — one lightweight adapter per Telegram
-  channel, each calling the brain's webhook.
-- `instruction-validator.json`, `instruction-validator-errors.json`,
-  `stale-alert.json` — the validation and monitoring workflows.
-- `tenant-activation.json`, `owner-data-intake.json`,
-  `barqlo-request-status-notify.json`, `follow-up.json`, `admin-ops.json` —
-  supporting operations workflows.
-- `barqlo-brain-main-v2-DRAFT.json` — a draft copy of the brain
-  (22 nodes), kept for reference.
+**Source availability notice (2026-11-10):** Production-oriented n8n workflow exports, Supabase historical SQL migrations, and the production setup runbook have been moved from the current public branch to an internal private BARQLO repository. These materials are not currently offered as a public deployment kit. The earlier database baseline was not included in the former SQL export, so the exported migrations alone did not constitute a complete clean-room install.
 
-No credentials appear in these files: database, Telegram and header-auth
-credentials are referenced by name only.
+This change only removes those files from the **current default branch**. Previous Git commits, forks, clones, or cached copies may still contain earlier versions; this is not a claim that the historical publication has been erased.
 
-## Reviewer documentation
+## Public repository contents
 
-- [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — n8n imports, credential-reference inventory, database prerequisites, test steps and known limits; **only incremental SQL migrations are included; the original database baseline is not published**, so this is not a one-command clean install.
-- [`HACKATHON_BUILD.md`](HACKATHON_BUILD.md) — source-to-claim mapping, dated evidence, and what cannot be established from a later commit.
-- [`LICENSE`](LICENSE) — MIT license for repository code; commercial reuse is permitted under its terms.
+- [Demo and fabricated sample data](demo/)
+- [Architecture overview](docs/architecture.md)
+- [Dated test/evidence narrative and limitations](docs/live-verification-2026-11-05.md)
+- [Hackathon build and public evidence map](HACKATHON_BUILD.md)
+- [MIT license for published repository code](LICENSE)
 
-## Supabase SQL migration history
+## Scope and verification limits
 
-- [`supabase/migrations/`](supabase/migrations/) — **18 authentic historical, incremental SQL migrations** extracted read-only from the live Supabase migration-history table on 2026-11-05. These **are not a complete from-scratch schema**: the earlier BARQLO baseline is missing. See [`supabase/README.md`](supabase/README.md) before attempting any import.
-
-## Repository structure
-
-```text
-README.md               This file.
-PRODUCTION_SETUP.md     Production integration steps and documented prerequisites.
-supabase/migrations/     Eighteen recorded incremental SQL migrations (original baseline not included).
-supabase/README.md      Source provenance, limitations and reproducible baseline guidance.
-HACKATHON_BUILD.md      Evidence map and hackathon-build scope.
-LICENSE                 MIT license for the published repository code.
-demo/demo.js            The offline demo of the two-agent core loop.
-demo/sample-data.json   Fabricated tenant data (invented restaurant, prices,
-                        policies). Nothing real.
-docs/architecture.md    Pipeline, identity rules, verification rules, and how
-                        the demo maps to the production system.
-docs/live-verification-2026-11-05.md
-                        Execution-by-execution record of the 2026-11-05 live
-                        inspection: what was observed, and what was not
-                        claimed.
-workflows/              The production n8n workflows, exported 2026-11-05
-                        (read-only export, nothing changed): the live brain,
-                        the previous brain version, the three Telegram
-                        adapters, and the supporting workflows. See
-                        workflows/MANIFEST.txt for IDs and fingerprints.
-.gitignore              Keeps secrets and local artifacts out of the repo.
-```
-
-## Honesty notes
-
-- All sample data in this repo is fabricated. No real customer names, phone
-  numbers, prices or conversations appear anywhere here.
-- Nothing in this repo calls a live system, and it contains no credentials,
-  tokens or keys — credentials are referenced by name only. The workflow
-  files do contain the production webhook URL and the Meta Model API
-  endpoint, both already stated in this README.
-- Production runs as a single n8n workflow backed by PostgreSQL, with one
-  lightweight adapter per channel. The workflow's node count, endpoint, model
-  and timeout stated in `docs/architecture.md` were read from a live export.
-- The live-verification record states its inspection window and its limits.
-  Do not treat later exports or post-deadline documentation commits as proof
-  that they were part of the original submitted snapshot. The present guard
-  may have different customer request-blocking logic from the earlier one.
+- The public demo is illustrative, offline, and uses invented tenant data. It is not a live production deployment or proof of all performance claims.
+- The production environment remains separate; no live database connection or operational credential is required to run the public demo.
+- Requests for independent technical review of production configurations must be handled through an explicitly authorized private audit.
